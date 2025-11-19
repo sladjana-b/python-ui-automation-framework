@@ -14,47 +14,51 @@ def driver(request):
     yield driver
 
     # ========== SCREENSHOT ON FAIL/PASS ==========
-    if request.node.rep_call.failed:
-        status = "FAIL"
-    else:
-        status = "PASS"
-
+    status = "FAIL" if request.node.rep_call.failed else "PASS"
     test_name = request.node.name
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    os.makedirs("screenshots", exist_ok=True)
+    screenshots_dir = "screenshots"
+    os.makedirs(screenshots_dir, exist_ok=True)
+
     screenshot_name = f"{test_name}_{status}_{timestamp}.png"
-    screenshot_path = os.path.join("screenshots", screenshot_name)
+    screenshot_path = os.path.join(screenshots_dir, screenshot_name)
 
     driver.save_screenshot(screenshot_path)
     print(f"\n[Screenshot saved]: {screenshot_path}")
 
     driver.quit()
 
+
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
-    
-
     outcome = yield
     rep = outcome.get_result()
 
+    # Attach rep to item so fixture can use it
     setattr(item, "rep_" + rep.when, rep)
 
+    # Only run this for the "call" phase (not setup/teardown)
     if rep.when != "call":
         return
 
     screenshots_dir = "screenshots"
-    test_name = item.name
 
+    # If folder does not exist OR is empty — skip gracefully
+    if not os.path.exists(screenshots_dir) or not os.listdir(screenshots_dir):
+        return
+
+    # Look for screenshot matching test name
     screenshot_file = None
     for file in os.listdir(screenshots_dir):
-        if file.startswith(test_name) and file.endswith(".png"):
+        if file.startswith(item.name) and file.endswith(".png"):
             screenshot_file = os.path.join(screenshots_dir, file)
             break
 
     if not screenshot_file:
         return
 
+    # Attach screenshot to HTML report
     with open(screenshot_file, "rb") as f:
         encoded = base64.b64encode(f.read()).decode()
 
@@ -68,6 +72,7 @@ def pytest_runtest_makereport(item, call):
     extra = getattr(rep, "extra", [])
     extra.append(pytest_html.extras.html(html))
     rep.extra = extra
+
 
 @pytest.fixture
 def login_as_standard_user(driver):
